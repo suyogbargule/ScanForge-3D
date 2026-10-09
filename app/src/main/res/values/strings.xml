@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">ScanForge 3D</string>
+    <string name="app_tagline">Local Multi-View 3D Object Scanner</string>
+    <string name="new_scan">New 3D Scan</string>
+    <string name="scan_history">Scan History</string>
+    <string name="device_check">Device Check</string>
+    <string name="settings">Settings</string>
+    <string name="doc_analysis">Scan &amp; Document Analysis</string>
+    <string name="start_scan">Start Guided Capture</string>
+    <string name="manual_capture">Capture Frame</string>
+    <string name="auto_capture_active">Auto Capture Active</string>
+    <string name="auto_capture_paused">Auto Capture Paused</string>
+    <string name="quality_acceptable">Target aligned • Hold steady</string>
+    <string name="quality_adjust">Adjust angle / Move closer</string>
+    <string name="quality_poor">Motion blur or low light</string>
+    <string name="reconstruct_now">Process 3D Model</string>
+    <string name="export_model">Export 3D Asset (PLY/OBJ)</string>
+    <string name="coverage_title">Spherical Coverage Analysis</string>
+    <string name="accessibility_camera_preview">Live camera feed showing physical object</string>
+    <string name="accessibility_spherical_overlay">Interactive 3D capture sphere showing viewpoint rings and captured positions</string>
+    <string name="accessibility_capture_button">Capture photographic viewpoint</string>
+</resources>

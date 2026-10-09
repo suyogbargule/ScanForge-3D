@@ -1,0 +1,6 @@
+{
+  "name": "ScanForge 3D",
+  "description": "Local-first Android 360° Photo Sphere & 3D multi-view scanner with spherical dot alignment, local stitching, gyroscope VR viewer, and interactive 3D reconstruction.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
