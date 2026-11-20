@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,26 +21,21 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Devices
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.FolderZip
+import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ViewInAr
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,27 +43,33 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.R
-import com.example.model.ScanSession
-import com.example.viewmodel.ScanViewModel
+import com.example.model.CaptureSessionSummary
+import com.example.model.SessionStateStatus
+import com.example.ui.theme.CaptureGreen
+import com.example.ui.theme.CaptureGreenDark
+import com.example.ui.theme.WarningAmber
+import com.example.viewmodel.SphereCaptureViewModel
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,17 +77,16 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    viewModel: ScanViewModel,
-    onNavigateToNewScan: () -> Unit,
-    onNavigateToPhotoSphere: () -> Unit,
-    onNavigateToHistory: () -> Unit,
-    onNavigateToDeviceCheck: () -> Unit,
-    onNavigateToDocAnalysis: () -> Unit,
-    onNavigateToSettings: () -> Unit,
-    onOpenViewer: (ScanSession) -> Unit
+    viewModel: SphereCaptureViewModel,
+    onStartNewCapture: () -> Unit,
+    onResumeSession: (String) -> Unit,
+    onReviewSession: (String) -> Unit,
+    onOpenTutorial: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
-    val sessions by viewModel.allSessions.collectAsState()
-    val deviceProfile by viewModel.deviceProfile.collectAsState()
+    val sessions by viewModel.savedSessions.collectAsStateWithLifecycle()
+    val diagnostics = remember { viewModel.getDeviceDiagnostics() }
+    var sessionToDelete by remember { mutableStateOf<CaptureSessionSummary?>(null) }
 
     Scaffold(
         topBar = {
@@ -93,28 +95,28 @@ fun HomeScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF00E5FF)),
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(CaptureGreen.copy(alpha = 0.16f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ViewInAr,
                                 contentDescription = null,
-                                tint = Color(0xFF0D1117),
-                                modifier = Modifier.size(22.dp)
+                                tint = CaptureGreenDark,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Column {
                             Text(
                                 text = stringResource(R.string.app_name),
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Local 3D Object Scanner",
-                                style = MaterialTheme.typography.labelSmall,
+                                text = stringResource(R.string.app_tagline),
+                                style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -122,31 +124,26 @@ fun HomeScreen(
                 },
                 actions = {
                     IconButton(
-                        onClick = onNavigateToDocAnalysis,
-                        modifier = Modifier
-                            .testTag("action_doc_analysis")
-                            .semantics { contentDescription = "View PRD Document Analysis and Requirements Audit" }
+                        onClick = onOpenTutorial,
+                        modifier = Modifier.testTag("btn_open_tutorial")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Analytics,
-                            contentDescription = "Document Analysis",
-                            tint = Color(0xFF00E5FF)
+                            imageVector = Icons.AutoMirrored.Filled.Help,
+                            contentDescription = stringResource(R.string.calibration_guide)
                         )
                     }
                     IconButton(
-                        onClick = onNavigateToSettings,
-                        modifier = Modifier
-                            .testTag("action_settings")
-                            .semantics { contentDescription = "Open Application Settings" }
+                        onClick = onOpenSettings,
+                        modifier = Modifier.testTag("btn_open_settings")
                     ) {
                         Icon(
                             imageVector = Icons.Default.Settings,
-                            contentDescription = "Settings"
+                            contentDescription = stringResource(R.string.settings)
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             )
         }
@@ -155,187 +152,113 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .testTag("home_screen_content"),
+                .navigationBarsPadding()
+                .testTag("home_screen"),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 360 Photo Sphere (DoSpace Style) Banner
+            // 1. Primary 30-Shot Capture Launcher Card
             item {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_photosphere_360"),
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0F2537))
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.radialGradient(
-                                    colors = listOf(Color(0xFF0288D1), Color(0xFF0A192F)),
-                                    radius = 900f
-                                )
-                            )
-                            .padding(20.dp)
-                    ) {
-                        Column {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Text(
+                            text = "Virtual Sphere Acquisition",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "Stand still at the centre of the sphere and capture 30 overlapping photos across 5 bands (1 Zenith, 8 Upper, 12 Centre, 8 Lower, 1 Nadir).",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // 5-band summary chips
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            listOf("Z:1", "U:8", "C:12", "L:8", "N:1").forEach { tag ->
                                 Surface(
-                                    color = Color(0xFF00E5FF).copy(alpha = 0.2f),
-                                    shape = RoundedCornerShape(8.dp)
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(
-                                        text = "360° PHOTO SPHERE CAM",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF00E5FF),
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier.padding(vertical = 6.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tag,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
-                                Surface(
-                                    color = Color(0xFF00E676).copy(alpha = 0.2f),
-                                    shape = CircleShape
-                                ) {
-                                    Text(
-                                        text = "100% Local Stitching",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF00E676),
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Text(
-                                text = "Capture 360° Panorama &\nVirtual Tour Spheres",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = Color.White,
-                                fontWeight = FontWeight.ExtraBold,
-                                lineHeight = 28.sp
-                            )
-
-                            Spacer(modifier = Modifier.height(6.dp))
-
-                            Text(
-                                text = "DoSpace 360 Photo Cam style: align floating AR bubbles around yourself to capture full 360x180 spherical panoramas with on-device stitching and gyroscope VR viewing.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.8f)
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Button(
-                                onClick = onNavigateToPhotoSphere,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                                    .testTag("btn_start_photosphere_360"),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF00E5FF),
-                                    contentColor = Color(0xFF0D1117)
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.CameraAlt,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Start 360° Photo Sphere",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
                             }
                         }
-                    }
-                }
-            }
 
-            // Hero Banner
-            item {
-                HeroScannerCard(
-                    hardwareScore = deviceProfile.hardwareScore,
-                    onStartScan = onNavigateToNewScan
-                )
-            }
+                        Spacer(modifier = Modifier.height(14.dp))
 
-            // Quick Actions Row
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    QuickActionTile(
-                        title = "Device Check",
-                        subtitle = "Android 16 • IMU",
-                        icon = Icons.Default.Devices,
-                        tag = "tile_device_check",
-                        color = Color(0xFF00B4D8),
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToDeviceCheck
-                    )
-                    QuickActionTile(
-                        title = "Doc Analysis",
-                        subtitle = "PRD Audit & Specs",
-                        icon = Icons.Default.Analytics,
-                        tag = "tile_doc_analysis",
-                        color = Color(0xFF7C4DFF),
-                        modifier = Modifier.weight(1f),
-                        onClick = onNavigateToDocAnalysis
-                    )
-                }
-            }
-
-            // System Capabilities Card
-            item {
-                ElevatedCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("card_system_capabilities"),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.elevatedCardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
+                        // Storage & Sensor readiness badge
+                        val storageReady = diagnostics.freeStorageMb >= 150L
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CheckCircle,
+                                imageVector = if (storageReady) Icons.Default.CheckCircle else Icons.Default.Warning,
                                 contentDescription = null,
-                                tint = Color(0xFF00E676),
+                                tint = if (storageReady) CaptureGreenDark else WarningAmber,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = "Free storage: ${diagnostics.freeStorageMb} MB • FOV ${diagnostics.cameraFov.hFovDeg.toInt()}°×${diagnostics.cameraFov.vFovDeg.toInt()}°",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Button(
+                            onClick = onStartNewCapture,
+                            shape = RoundedCornerShape(14.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = CaptureGreenDark,
+                                contentColor = androidx.compose.ui.graphics.Color.White
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("btn_new_30_capture")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CameraAlt,
+                                contentDescription = null,
                                 modifier = Modifier.size(20.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Engine Status: 100% Local / Offline",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                text = stringResource(R.string.new_capture),
+                                style = MaterialTheme.typography.labelLarge
                             )
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Spherical 5-layer capture guidance with IMU 6-DoF sensor fusion, automatic sharpness & stability gating, and on-device 3D Gaussian Splatting.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
                     }
                 }
             }
 
-            // Recent Scans Section Header
+            // 2. Saved Sessions Header ("My Captures", Section 16)
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -343,294 +266,228 @@ fun HomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Recent 3D Scans",
+                        text = stringResource(R.string.my_captures),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "View All (${sessions.size})",
+                        text = "${sessions.size} saved",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF00E5FF),
-                        modifier = Modifier
-                            .clickable { onNavigateToHistory() }
-                            .padding(4.dp)
-                            .testTag("action_view_all_scans")
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // Session List Items
             if (sessions.isEmpty()) {
                 item {
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(28.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Folder,
+                                imageVector = Icons.Default.FolderZip,
                                 contentDescription = null,
-                                modifier = Modifier.size(40.dp),
-                                tint = MaterialTheme.colorScheme.outline
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(36.dp)
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(10.dp))
                             Text(
-                                text = "No scans yet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.outline
+                                text = "No capture sessions yet",
+                                style = MaterialTheme.typography.titleMedium
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Button(
-                                onClick = onNavigateToNewScan,
-                                modifier = Modifier.testTag("empty_start_scan_button")
-                            ) {
-                                Text("Create First 3D Scan")
-                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Start a 30-shot capture to save img_01..img_30.jpg and session.json locally for export.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
             } else {
-                items(sessions.take(4)) { session ->
-                    RecentScanCard(
+                items(sessions, key = { it.sessionId }) { session ->
+                    SessionCard(
                         session = session,
-                        onClick = { onOpenViewer(session) }
+                        onResume = { onResumeSession(session.sessionId) },
+                        onReview = { onReviewSession(session.sessionId) },
+                        onDelete = { sessionToDelete = session }
                     )
                 }
             }
         }
     }
-}
 
-@Composable
-private fun HeroScannerCard(
-    hardwareScore: Int,
-    onStartScan: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("hero_scanner_card"),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF131B2E))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(Color(0xFF1E3A5F), Color(0xFF0E1626)),
-                        radius = 800f
-                    )
-                )
-                .padding(20.dp)
-        ) {
-            Column {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+    if (sessionToDelete != null) {
+        val target = sessionToDelete!!
+        AlertDialog(
+            onDismissRequest = { sessionToDelete = null },
+            title = { Text("Delete Capture Session?") },
+            text = { Text("Delete \"${target.title}\" and all ${target.completedCount} captured images from device storage?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSession(target)
+                        sessionToDelete = null
+                    }
                 ) {
-                    Surface(
-                        color = Color(0xFF00E5FF).copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text(
-                            text = "3D RECONSTRUCTION READY",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color(0xFF00E5FF),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    Surface(
-                        color = Color(0xFF00E676).copy(alpha = 0.2f),
-                        shape = CircleShape
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF00E676))
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Score: $hardwareScore%",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF00E676),
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
                 }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = "Spherical Multi-View\n3D Object Scanner",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    lineHeight = 30.sp
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Capture 30-50 guided photographic viewpoints around physical objects with real-time pose tracking and quality gating.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.75f)
-                )
-
-                Spacer(modifier = Modifier.height(18.dp))
-
-                Button(
-                    onClick = onStartScan,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("button_start_new_scan"),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF00E5FF),
-                        contentColor = Color(0xFF0D1117)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CameraAlt,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Start Guided 3D Capture",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+            },
+            dismissButton = {
+                TextButton(onClick = { sessionToDelete = null }) {
+                    Text("Cancel")
                 }
             }
-        }
+        )
     }
 }
 
 @Composable
-private fun QuickActionTile(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    tag: String,
-    color: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
+private fun SessionCard(
+    session: CaptureSessionSummary,
+    onResume: () -> Unit,
+    onReview: () -> Unit,
+    onDelete: () -> Unit
 ) {
+    val dateLabel = remember(session.updatedAt) {
+        SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(session.updatedAt))
+    }
+
+    val statusColor = when (session.status) {
+        SessionStateStatus.INCOMPLETE -> WarningAmber
+        SessionStateStatus.READY -> CaptureGreenDark
+        SessionStateStatus.EXPORTED -> CaptureGreen
+    }
+
     Card(
-        modifier = modifier
-            .clickable(onClick = onClick)
-            .testTag(tag),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant
-        )
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(color.copy(alpha = 0.2f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun RecentScanCard(
-    session: ScanSession,
-    onClick: () -> Unit
-) {
-    val dateFormat = SimpleDateFormat("MMM d, yyyy • h:mm a", Locale.getDefault())
-    val dateStr = dateFormat.format(Date(session.createdAt))
-
-    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+        ),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .testTag("scan_card_${session.id}"),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-        )
+            .clickable {
+                if (session.completedCount < 30) onResume() else onReview()
+            }
+            .testTag("session_card_${session.sessionId}")
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Thumbnail
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF1E293B)),
+                    .size(68.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(1.5.dp, statusColor.copy(alpha = 0.6f), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.ViewInAr,
-                    contentDescription = null,
-                    tint = Color(0xFF00E5FF),
-                    modifier = Modifier.size(26.dp)
-                )
+                val thumbFile = session.thumbnailPath?.let { File(it) }
+                if (thumbFile != null && thumbFile.exists()) {
+                    AsyncImage(
+                        model = thumbFile,
+                        contentDescription = session.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = session.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    Surface(
+                        color = statusColor.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = session.status.label,
+                            color = statusColor,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
-                    text = session.objectName,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "$dateStr • ${session.frameCount} views • ${session.coveragePercentage.toInt()}% coverage",
+                    text = "${session.completedCount}/30 shots • ${session.coveragePercent.toInt()}% sphere • $dateLabel",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (session.completedCount < 30) {
+                        Button(
+                            onClick = onResume,
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = CaptureGreenDark),
+                            modifier = Modifier.height(34.dp)
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Resume", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = onReview,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(34.dp)
+                    ) {
+                        Text("Review / Export", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
             }
 
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = "View scan details",
-                tint = MaterialTheme.colorScheme.outline
-            )
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = "Delete session",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

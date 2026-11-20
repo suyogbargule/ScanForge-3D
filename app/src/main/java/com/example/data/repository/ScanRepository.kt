@@ -1,13 +1,14 @@
 package com.example.data.repository
 
-import android.content.Context
-import com.example.data.local.FrameEntity
+import com.example.data.local.CaptureSessionEntity
+import com.example.data.local.CaptureTargetEntity
 import com.example.data.local.ScanDao
-import com.example.data.local.ScanSessionEntity
-import com.example.model.Frame
-import com.example.model.Pose
-import com.example.model.ScanSession
-import com.example.model.SessionStatus
+import com.example.model.CaptureSessionSummary
+import com.example.model.CaptureTarget
+import com.example.model.SessionStateStatus
+import com.example.model.SphereLayer
+import com.example.model.SphereTargetBuilder
+import com.example.model.TargetStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -15,116 +16,135 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class ScanRepository(
-    private val scanDao: ScanDao,
-    private val context: Context
+    private val scanDao: ScanDao
 ) {
-    fun getAllSessions(): Flow<List<ScanSession>> {
-        return scanDao.getAllSessions().map { entities ->
+    fun observeAllSessions(): Flow<List<CaptureSessionSummary>> {
+        return scanDao.getAllSessions().map { list ->
+            list.map { it.toSummary() }
+        }
+    }
+
+    suspend fun getSession(sessionId: String): CaptureSessionSummary? = withContext(Dispatchers.IO) {
+        scanDao.getSessionById(sessionId)?.toSummary()
+    }
+
+    suspend fun saveSession(summary: CaptureSessionSummary, targets: List<CaptureTarget>) = withContext(Dispatchers.IO) {
+        scanDao.upsertSession(summary.toEntity())
+        scanDao.upsertTargets(targets.map { it.toEntity(summary.sessionId) })
+    }
+
+    suspend fun updateSessionSummary(summary: CaptureSessionSummary) = withContext(Dispatchers.IO) {
+        scanDao.upsertSession(summary.toEntity())
+    }
+
+    suspend fun saveTarget(sessionId: String, target: CaptureTarget) = withContext(Dispatchers.IO) {
+        scanDao.upsertTarget(target.toEntity(sessionId))
+    }
+
+    suspend fun loadTargets(sessionId: String): List<CaptureTarget> = withContext(Dispatchers.IO) {
+        val entities = scanDao.getTargetsForSession(sessionId)
+        if (entities.isEmpty()) {
+            SphereTargetBuilder.buildTargets()
+        } else {
             entities.map { it.toDomain() }
         }
     }
 
-    suspend fun getSession(sessionId: String): ScanSession? = withContext(Dispatchers.IO) {
-        scanDao.getSessionById(sessionId)?.toDomain()
-    }
-
-    suspend fun saveSession(session: ScanSession) = withContext(Dispatchers.IO) {
-        scanDao.insertSession(session.toEntity())
-    }
-
-    suspend fun updateSession(session: ScanSession) = withContext(Dispatchers.IO) {
-        scanDao.updateSession(session.toEntity())
-    }
-
-    suspend fun deleteSession(sessionId: String) = withContext(Dispatchers.IO) {
+    suspend fun deleteSession(sessionId: String, sessionDirPath: String) = withContext(Dispatchers.IO) {
+        scanDao.deleteTargetsForSession(sessionId)
         scanDao.deleteSession(sessionId)
-        scanDao.deleteFramesForSession(sessionId)
-        // Clean up session directory in app-private storage
-        val sessionDir = File(context.filesDir, "scans/$sessionId")
-        if (sessionDir.exists()) {
-            sessionDir.deleteRecursively()
+        try {
+            File(sessionDirPath).deleteRecursively()
+        } catch (_: Exception) {
         }
     }
 
-    fun getFramesForSession(sessionId: String): Flow<List<Frame>> {
-        return scanDao.getFramesForSession(sessionId).map { entities ->
-            entities.map { it.toDomain() }
-        }
-    }
-
-    suspend fun saveFrame(frame: Frame) = withContext(Dispatchers.IO) {
-        scanDao.insertFrame(frame.toEntity())
-    }
-
-    fun getSessionDirectory(sessionId: String): File {
-        val dir = File(context.filesDir, "scans/$sessionId")
-        if (!dir.exists()) {
-            dir.mkdirs()
-        }
-        return dir
-    }
-
-    private fun ScanSessionEntity.toDomain(): ScanSession {
-        return ScanSession(
-            id = id,
-            objectName = objectName,
+    private fun CaptureSessionEntity.toSummary(): CaptureSessionSummary {
+        return CaptureSessionSummary(
+            sessionId = sessionId,
+            title = title,
             createdAt = createdAt,
             updatedAt = updatedAt,
-            status = try { SessionStatus.valueOf(status) } catch (e: Exception) { SessionStatus.COMPLETED },
-            frameCount = frameCount,
-            coveragePercentage = coveragePercentage,
-            assetPath = assetPath,
-            pointCount = pointCount,
-            reconstructionDurationMs = reconstructionDurationMs,
-            notes = notes
+            yawOffsetDeg = yawOffsetDeg,
+            status = try {
+                SessionStateStatus.valueOf(status)
+            } catch (_: Exception) {
+                SessionStateStatus.INCOMPLETE
+            },
+            completedCount = completedCount,
+            flaggedCount = flaggedCount,
+            coveragePercent = coveragePercent,
+            thumbnailPath = thumbnailPath,
+            sessionDirPath = sessionDirPath,
+            fovHDeg = fovHDeg,
+            fovVDeg = fovVDeg
         )
     }
 
-    private fun ScanSession.toEntity(): ScanSessionEntity {
-        return ScanSessionEntity(
-            id = id,
-            objectName = objectName,
+    private fun CaptureSessionSummary.toEntity(): CaptureSessionEntity {
+        return CaptureSessionEntity(
+            sessionId = sessionId,
+            title = title,
             createdAt = createdAt,
             updatedAt = updatedAt,
+            yawOffsetDeg = yawOffsetDeg,
             status = status.name,
-            frameCount = frameCount,
-            coveragePercentage = coveragePercentage,
-            assetPath = assetPath,
-            pointCount = pointCount,
-            reconstructionDurationMs = reconstructionDurationMs,
-            notes = notes
+            completedCount = completedCount,
+            flaggedCount = flaggedCount,
+            coveragePercent = coveragePercent,
+            thumbnailPath = thumbnailPath,
+            sessionDirPath = sessionDirPath,
+            fovHDeg = fovHDeg,
+            fovVDeg = fovVDeg
         )
     }
 
-    private fun FrameEntity.toDomain(): Frame {
-        return Frame(
-            id = id,
+    private fun CaptureTarget.toEntity(sessionId: String): CaptureTargetEntity {
+        return CaptureTargetEntity(
             sessionId = sessionId,
-            localPath = localPath,
+            targetId = id,
+            layer = layer.name,
+            yawDeg = yawDeg,
+            pitchDeg = pitchDeg,
+            status = status.name,
+            imagePath = imagePath,
+            thumbPath = thumbPath,
+            rotationMatrixCsv = rotationMatrix?.joinToString(","),
+            quaternionCsv = quaternion?.joinToString(","),
+            angleErrorDeg = angleErrorDeg,
+            blurScore = blurScore,
+            exposureWarning = exposureWarning,
+            textureWarning = textureWarning,
+            qualityNote = qualityNote,
             timestamp = timestamp,
-            pose = Pose.fromSpherical(azimuthDeg, elevationDeg, distance),
-            qualityScore = qualityScore,
-            sharpness = sharpness,
-            exposure = exposure,
-            coverageCellId = coverageCellId,
-            accepted = accepted
+            captureOrder = captureOrder,
+            imageWidth = imageWidth,
+            imageHeight = imageHeight,
+            checksumSha256 = checksumSha256
         )
     }
 
-    private fun Frame.toEntity(): FrameEntity {
-        return FrameEntity(
-            id = id,
-            sessionId = sessionId,
-            localPath = localPath,
+    private fun CaptureTargetEntity.toDomain(): CaptureTarget {
+        return CaptureTarget(
+            id = targetId,
+            layer = try { SphereLayer.valueOf(layer) } catch (_: Exception) { SphereLayer.CENTRE },
+            yawDeg = yawDeg,
+            pitchDeg = pitchDeg,
+            status = try { TargetStatus.valueOf(status) } catch (_: Exception) { TargetStatus.REMAINING },
+            imagePath = imagePath,
+            thumbPath = thumbPath,
+            rotationMatrix = rotationMatrixCsv?.split(",")?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 9 }?.toFloatArray(),
+            quaternion = quaternionCsv?.split(",")?.mapNotNull { it.toFloatOrNull() }?.takeIf { it.size == 4 }?.toFloatArray(),
+            angleErrorDeg = angleErrorDeg,
+            blurScore = blurScore,
+            exposureWarning = exposureWarning,
+            textureWarning = textureWarning,
+            qualityNote = qualityNote,
             timestamp = timestamp,
-            azimuthDeg = pose.azimuthDeg,
-            elevationDeg = pose.elevationDeg,
-            distance = pose.distance,
-            qualityScore = qualityScore,
-            sharpness = sharpness,
-            exposure = exposure,
-            coverageCellId = coverageCellId,
-            accepted = accepted
+            captureOrder = captureOrder,
+            imageWidth = imageWidth,
+            imageHeight = imageHeight,
+            checksumSha256 = checksumSha256
         )
     }
 }

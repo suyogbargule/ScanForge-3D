@@ -1,422 +1,235 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.view.WindowManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.view.PreviewView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoMode
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Navigation
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RotateLeft
-import androidx.compose.material.icons.filled.RotateRight
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import coil.compose.AsyncImage
-import com.example.model.QualityColorState
-import com.example.ui.components.CenterTargetReticle
-import com.example.ui.components.SphericalRadarView
-import com.example.viewmodel.ScanViewModel
-import java.io.File
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.R
+import com.example.model.CaptureState
+import com.example.model.SensorMode
+import com.example.ui.components.CaptureHudOverlay
+import com.example.ui.components.VirtualSphereGLSurfaceView
+import com.example.ui.theme.CaptureGreenDark
+import com.example.viewmodel.SphereCaptureViewModel
 
 @Composable
 fun CaptureScreen(
-    viewModel: ScanViewModel,
-    onFinishScan: () -> Unit,
-    onCancelScan: () -> Unit
+    viewModel: SphereCaptureViewModel,
+    onCloseToHome: () -> Unit,
+    onSessionComplete: (String) -> Unit
 ) {
-    val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val uiState by viewModel.captureUi.collectAsStateWithLifecycle()
+    val flashAlpha = remember { Animatable(0f) }
 
-    val qualityColor = when (uiState.quality.colorState) {
-        QualityColorState.GREEN -> Color(0xFF00E676)
-        QualityColorState.YELLOW -> Color(0xFFFFD600)
-        QualityColorState.RED -> Color(0xFFFF5252)
+    var hasCameraPermission by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+        )
     }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        hasCameraPermission = granted
+    }
+
+    // Lock screen to portrait & keep screen awake during capture (Section 22.4)
+    DisposableEffect(context) {
+        val activity = context.findActivity()
+        val prevOrientation = activity?.requestedOrientation ?: ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        viewModel.startTracking()
+
+        onDispose {
+            viewModel.stopTracking()
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            activity?.requestedOrientation = prevOrientation
+        }
+    }
+
+    // Shutter flash animation on capture
+    LaunchedEffect(uiState.shutterFlashTrigger) {
+        if (uiState.shutterFlashTrigger > 0L) {
+            flashAlpha.snapTo(0.65f)
+            flashAlpha.animateTo(0f, animationSpec = tween(durationMillis = 200))
+        }
+    }
+
+    // Auto-navigate to Review screen when 30/30 or single retake completes
+    LaunchedEffect(uiState.sessionCompletedTrigger) {
+        val completedId = uiState.sessionCompletedTrigger
+        if (completedId != null) {
+            viewModel.consumeSessionCompletedTrigger()
+            onSessionComplete(completedId)
+        }
+    }
+
+    if (!hasCameraPermission) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.CameraAlt,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(48.dp)
+                )
+                Text(
+                    text = "Camera Permission Required",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "Grant camera access to preview and capture the 30 spherical viewpoints.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.78f),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Button(
+                    onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                    colors = ButtonDefaults.buttonColors(containerColor = CaptureGreenDark),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Allow Camera")
+                }
+                OutlinedButton(onClick = onCloseToHome) {
+                    Text("Back", color = Color.White)
+                }
+            }
+        }
+        return
+    }
+
+    val allowManualPan = !uiState.hasLiveSensor || uiState.settings.sensorMode == SensorMode.MANUAL
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
             .testTag("capture_screen")
+            .then(
+                if (allowManualPan) {
+                    Modifier.pointerInput(Unit) {
+                        detectDragGestures { change, dragAmount ->
+                            change.consume()
+                            viewModel.onManualPan(
+                                yawDeltaDeg = dragAmount.x * 0.25f,
+                                pitchDeltaDeg = -dragAmount.y * 0.25f
+                            )
+                        }
+                    }
+                } else Modifier
+            )
     ) {
-        // CameraX Preview or Simulated Feed
+        // Layer 1: CameraX PreviewView at the bottom (Section 23.2 Step 1)
         AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).apply {
                     scaleType = PreviewView.ScaleType.FILL_CENTER
-                    viewModel.cameraProvider.bindCamera(
-                        lifecycleOwner = lifecycleOwner,
-                        previewView = this,
-                        onError = { /* falls back gracefully to simulation */ }
-                    )
+                    contentDescription = ctx.getString(R.string.accessibility_camera_preview)
+                    viewModel.bindCamera(lifecycleOwner, this)
                 }
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag("camera_preview_view")
-                .semantics { contentDescription = "Live camera preview viewfinder for 3D capture" }
+            modifier = Modifier.fillMaxSize()
         )
 
-        // Semi-transparent overlay gradient
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.7f),
-                            Color.Transparent,
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.85f)
-                        )
-                    )
-                )
+        // Layer 2: Transparent OpenGL ES 2.0 Virtual Sphere & 3D AR Tile Overlay (Section 23.2 Step 1)
+        VirtualSphereGLSurfaceView(
+            targets = uiState.targets,
+            activeTargetId = uiState.activeTarget?.id,
+            viewMatrix4x4 = uiState.viewMatrix4x4,
+            cameraFov = uiState.cameraFov,
+            showTiles = uiState.captureState != CaptureState.CALIBRATING,
+            modifier = Modifier.fillMaxSize()
         )
 
-        // Center Reticle
-        CenterTargetReticle(
-            targetCloseness = uiState.quality.targetPoseCloseness,
-            colorState = uiState.quality.colorState,
-            modifier = Modifier.align(Alignment.Center)
-        )
-
-        // TOP HUD BAR: Layer, Progress, Close
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.TopCenter)
-                .padding(top = 40.dp, start = 16.dp, end = 16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onCancelScan,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.5f))
-                        .testTag("button_cancel_scan")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Cancel scan",
-                        tint = Color.White
-                    )
-                }
-
-                Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(20.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Layers,
-                            contentDescription = null,
-                            tint = Color(0xFF00E5FF),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = uiState.activeLayerName,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = onFinishScan,
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier
-                        .height(38.dp)
-                        .testTag("button_finish_scan")
-                ) {
-                    Text(
-                        text = "Review (${uiState.capturedFrames.size})",
-                        color = Color(0xFF0D1117),
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
+        // Layer 3: Compose HUD (START/HOLD circle, arrow, white frame, top guidance, bottom 30-dot map, X button)
+        CaptureHudOverlay(
+            uiState = uiState,
+            onStartCalibration = { viewModel.onStartCalibrationConfirm() },
+            onManualShutter = { viewModel.triggerManualShutter() },
+            onToggleGuidanceMode = { viewModel.toggleGuidanceMode() },
+            onCloseSession = {
+                viewModel.pauseAndSaveCurrentSession()
+                onCloseToHome()
             }
+        )
 
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Progress bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                LinearProgressIndicator(
-                    progress = { uiState.coveragePercentage / 100f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = Color(0xFF00E5FF),
-                    trackColor = Color.White.copy(alpha = 0.2f)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "${uiState.coveragePercentage.toInt()}%",
-                    color = Color.White,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
-
-        // FLOATING SPHERICAL RADAR (Top Right)
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 110.dp, end = 16.dp)
-        ) {
-            SphericalRadarView(
-                cells = uiState.cells,
-                currentPose = uiState.currentPose,
-                nextTarget = uiState.nextTarget
+        // Shutter flash feedback
+        if (flashAlpha.value > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.White.copy(alpha = flashAlpha.value))
             )
         }
-
-        // SIMULATION VIRTUAL ORBIT CONTROLS (For Testing / Keyboard / Emulators)
-        Row(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.clickable { viewModel.updateManualPose(azimuthDelta = 25f, elevationDelta = 0f) }
-                        .testTag("btn_orbit_right")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.RotateRight,
-                        contentDescription = "Orbit Right",
-                        tint = Color.White,
-                        modifier = Modifier.padding(8.dp).size(22.dp)
-                    )
-                }
-                Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.clickable { viewModel.updateManualPose(azimuthDelta = -25f, elevationDelta = 0f) }
-                        .testTag("btn_orbit_left")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.RotateLeft,
-                        contentDescription = "Orbit Left",
-                        tint = Color.White,
-                        modifier = Modifier.padding(8.dp).size(22.dp)
-                    )
-                }
-            }
-        }
-
-        // QUALITY STATE HUD PILL (Above bottom controls)
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 210.dp)
-                .testTag("quality_hud_pill"),
-            color = Color.Black.copy(alpha = 0.75f),
-            shape = RoundedCornerShape(24.dp),
-            border = androidx.compose.foundation.BorderStroke(1.5.dp, qualityColor)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(qualityColor)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = uiState.statusMessage,
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-        }
-
-        // BOTTOM CONTROLS & THUMBNAIL STRIP
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 24.dp)
-        ) {
-            // Thumbnail Strip of Captured Frames
-            if (uiState.capturedFrames.isNotEmpty()) {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .testTag("thumbnail_strip"),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(uiState.capturedFrames.reversed()) { frame ->
-                        Box(
-                            modifier = Modifier
-                                .size(52.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .border(1.5.dp, Color(0xFF00E676), RoundedCornerShape(8.dp))
-                                .background(Color(0xFF1E293B)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val file = remember(frame.localPath) { File(frame.localPath) }
-                            if (file.exists()) {
-                                AsyncImage(
-                                    model = file,
-                                    contentDescription = "Captured view ${frame.id}",
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E676),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // Shutter Controls Row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Auto-Capture Toggle
-                IconButton(
-                    onClick = { viewModel.toggleAutoCapture() },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (uiState.isAutoCaptureEnabled) Color(0xFF00E5FF).copy(alpha = 0.25f)
-                            else Color.White.copy(alpha = 0.15f)
-                        )
-                        .testTag("toggle_auto_capture")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.AutoMode,
-                        contentDescription = "Toggle auto-capture mode",
-                        tint = if (uiState.isAutoCaptureEnabled) Color(0xFF00E5FF) else Color.White
-                    )
-                }
-
-                // Primary Shutter Button (Manual Override & Visual Trigger)
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .border(3.dp, qualityColor, CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f))
-                        .clickable { viewModel.captureCurrentFrame(isManual = true) }
-                        .testTag("shutter_button")
-                        .semantics { contentDescription = "Capture current photographic viewpoint" },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(62.dp)
-                            .clip(CircleShape)
-                            .background(qualityColor)
-                    )
-                }
-
-                // Pause / Resume Toggle
-                IconButton(
-                    onClick = { viewModel.togglePause() },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.15f))
-                        .testTag("toggle_pause_scan")
-                ) {
-                    Icon(
-                        imageVector = if (uiState.isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
-                        contentDescription = if (uiState.isPaused) "Resume scanning" else "Pause scanning",
-                        tint = Color.White
-                    )
-                }
-            }
-        }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }

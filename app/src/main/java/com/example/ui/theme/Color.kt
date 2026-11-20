@@ -2,16 +2,22 @@ package com.example.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val NeonCyan = Color(0xFF00E5FF)
-val ElectricBlue = Color(0xFF00B4D8)
-val DeepNavy = Color(0xFF0D121F)
-val SurfaceDark = Color(0xFF131B2B)
-val SurfaceDarkVariant = Color(0xFF1C273C)
+val CaptureGreen = Color(0xFF2EF266)
+val CaptureGreenDark = Color(0xFF16A34A)
+val CaptureGreenMuted = Color(0xFF14532D)
+val CaptureGreenSurface = Color(0xFF0A2E1A)
 
-val AccentViolet = Color(0xFF7C4DFF)
-val SuccessEmerald = Color(0xFF00E676)
-val WarningAmber = Color(0xFFFFB300)
-val ErrorCoral = Color(0xFFFF5252)
+val DarkBackground = Color(0xFF090D11)
+val DarkSurface = Color(0xFF111820)
+val DarkSurfaceVariant = Color(0xFF1B2430)
+val DarkTextPrimary = Color(0xFFF3F7FA)
+val DarkTextSecondary = Color(0xFF90A0B2)
 
-val DarkOnSurface = Color(0xFFE2E8F0)
-val DarkOnSurfaceVariant = Color(0xFF94A3B8)
+val LightBackground = Color(0xFFF4F7F5)
+val LightSurface = Color(0xFFFFFFFF)
+val LightSurfaceVariant = Color(0xFFE7EEF0)
+val LightTextPrimary = Color(0xFF0C141A)
+val LightTextSecondary = Color(0xFF526375)
+
+val WarningAmber = Color(0xFFF59E0B)
+val RetakeRed = Color(0xFFEF4444)

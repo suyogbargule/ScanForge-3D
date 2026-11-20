@@ -6,8 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [ScanSessionEntity::class, FrameEntity::class],
-    version = 1,
+    entities = [CaptureSessionEntity::class, CaptureTargetEntity::class],
+    version = 2,
     exportSchema = false
 )
 abstract class ScanDatabase : RoomDatabase() {
@@ -22,8 +22,8 @@ abstract class ScanDatabase : RoomDatabase() {
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     ScanDatabase::class.java,
-                    "scanforge_3d.db"
-                ).fallbackToDestructiveMigration().build()
+                    "scan3d_capture.db"
+                ).fallbackToDestructiveMigration(true).build()
                 INSTANCE = instance
                 instance
             }

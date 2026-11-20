@@ -4,32 +4,31 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ScanDao {
-    @Query("SELECT * FROM scan_sessions ORDER BY updatedAt DESC")
-    fun getAllSessions(): Flow<List<ScanSessionEntity>>
+    @Query("SELECT * FROM capture_sessions ORDER BY updatedAt DESC")
+    fun getAllSessions(): Flow<List<CaptureSessionEntity>>
 
-    @Query("SELECT * FROM scan_sessions WHERE id = :sessionId LIMIT 1")
-    suspend fun getSessionById(sessionId: String): ScanSessionEntity?
+    @Query("SELECT * FROM capture_sessions WHERE sessionId = :sessionId LIMIT 1")
+    suspend fun getSessionById(sessionId: String): CaptureSessionEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertSession(session: ScanSessionEntity)
+    suspend fun upsertSession(session: CaptureSessionEntity)
 
-    @Update
-    suspend fun updateSession(session: ScanSessionEntity)
-
-    @Query("DELETE FROM scan_sessions WHERE id = :sessionId")
+    @Query("DELETE FROM capture_sessions WHERE sessionId = :sessionId")
     suspend fun deleteSession(sessionId: String)
 
-    @Query("SELECT * FROM captured_frames WHERE sessionId = :sessionId ORDER BY timestamp ASC")
-    fun getFramesForSession(sessionId: String): Flow<List<FrameEntity>>
+    @Query("SELECT * FROM capture_targets WHERE sessionId = :sessionId ORDER BY targetId ASC")
+    suspend fun getTargetsForSession(sessionId: String): List<CaptureTargetEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertFrame(frame: FrameEntity)
+    suspend fun upsertTargets(targets: List<CaptureTargetEntity>)
 
-    @Query("DELETE FROM captured_frames WHERE sessionId = :sessionId")
-    suspend fun deleteFramesForSession(sessionId: String)
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTarget(target: CaptureTargetEntity)
+
+    @Query("DELETE FROM capture_targets WHERE sessionId = :sessionId")
+    suspend fun deleteTargetsForSession(sessionId: String)
 }

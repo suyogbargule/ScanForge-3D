@@ -1,16 +1,11 @@
 package com.example
 
-import com.example.engine.guidance.CaptureGuide
-import com.example.engine.quality.FrameQualityAnalyzer
-import com.example.engine.quality.FrameSelector
-import com.example.model.CellStatus
-import com.example.model.CoverageCell
-import com.example.model.DeviceCapabilityProfile
-import com.example.model.Layer
-import com.example.model.Pose
-import com.example.model.QualityColorState
-import com.example.model.QualityProfile
-import com.example.model.Vector3
+import com.example.engine.coverage.SphereCoverageChecker
+import com.example.engine.quality.CaptureQualityGate
+import com.example.model.CameraFovInfo
+import com.example.model.SphereLayer
+import com.example.model.SphereTargetBuilder
+import com.example.model.TargetStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -20,145 +15,112 @@ import org.junit.Test
 class Scan3DUnitTest {
 
     @Test
-    fun testVector3DistanceAndNormalization() {
-        val v1 = Vector3(1f, 0f, 0f)
-        val v2 = Vector3(0f, 1f, 0f)
-        val dist = v1.distanceTo(v2)
-        assertEquals(1.4142f, dist, 0.001f)
+    fun testBuild30TargetsMatchesSection15Specification() {
+        val targets = SphereTargetBuilder.buildTargets()
+        assertEquals(30, targets.size)
 
-        val v3 = Vector3(0f, 3f, 4f)
-        assertEquals(5f, v3.length(), 0.001f)
-        val norm = v3.normalized()
-        assertEquals(1f, norm.length(), 0.001f)
+        // ID 1 = Zenith (+90)
+        val zenith = targets.find { it.id == 1 }
+        assertNotNull(zenith)
+        assertEquals(SphereLayer.ZENITH, zenith!!.layer)
+        assertEquals(90f, zenith.pitchDeg, 0.001f)
+        assertEquals("img_01.jpg", zenith.fileName)
+
+        // IDs 2..9 = Upper (8 targets at +45)
+        val upper = targets.filter { it.layer == SphereLayer.UPPER }
+        assertEquals(8, upper.size)
+        assertEquals((2..9).toList(), upper.map { it.id })
+        assertTrue(upper.all { it.pitchDeg == 45f })
+
+        // IDs 10..21 = Centre (12 targets at 0)
+        val centre = targets.filter { it.layer == SphereLayer.CENTRE }
+        assertEquals(12, centre.size)
+        assertEquals((10..21).toList(), centre.map { it.id })
+        assertTrue(centre.all { it.pitchDeg == 0f })
+
+        // IDs 22..29 = Lower (8 targets at -45)
+        val lower = targets.filter { it.layer == SphereLayer.LOWER }
+        assertEquals(8, lower.size)
+        assertEquals((22..29).toList(), lower.map { it.id })
+        assertTrue(lower.all { it.pitchDeg == -45f })
+
+        // ID 30 = Nadir (-90)
+        val nadir = targets.find { it.id == 30 }
+        assertNotNull(nadir)
+        assertEquals(SphereLayer.NADIR, nadir!!.layer)
+        assertEquals(-90f, nadir.pitchDeg, 0.001f)
+        assertEquals("img_30.jpg", nadir.fileName)
     }
 
     @Test
-    fun testCaptureGuideGeneratesFullSphericalLattice() {
-        val guide = CaptureGuide()
-        val lattice = guide.generateLattice(QualityProfile.BALANCED)
+    fun testRecommendedGuidedCaptureOrder() {
+        val targets = SphereTargetBuilder.buildTargets()
+        val first = SphereTargetBuilder.getNextGuidedTarget(targets)
+        assertNotNull(first)
+        // Guided order starts at Centre ring ID 10 (yaw 0, pitch 0)
+        assertEquals(10, first!!.id)
 
-        // Verifies presence of all 5 layers: Top, Upper, Middle, Lower, Bottom
-        val layersPresent = lattice.map { it.layer }.toSet()
-        assertTrue(layersPresent.contains(Layer.TOP))
-        assertTrue(layersPresent.contains(Layer.UPPER_RING))
-        assertTrue(layersPresent.contains(Layer.MIDDLE_RING))
-        assertTrue(layersPresent.contains(Layer.LOWER_RING))
-        assertTrue(layersPresent.contains(Layer.BOTTOM))
-
-        // Total views should be within dynamic 30-40 range
-        assertTrue(lattice.size in 30..45)
-
-        // Coverage percentage initially 0%
-        assertEquals(0f, guide.calculateCoveragePercentage(lattice), 0.001f)
+        // After completing Centre ring (10..21), next should be Upper ring ID 2
+        val afterCentre = targets.map {
+            if (it.id in 10..21) it.copy(status = TargetStatus.COMPLETED) else it
+        }
+        val nextUpper = SphereTargetBuilder.getNextGuidedTarget(afterCentre)
+        assertEquals(2, nextUpper!!.id)
     }
 
     @Test
-    fun testCoverageCalculationUpdatesAccurately() {
-        val guide = CaptureGuide()
-        val lattice = guide.generateLattice(QualityProfile.FAST)
-        val total = lattice.size
+    fun testSphereDirectionAndAngleErrorMath() {
+        val fwdNorth = SphereTargetBuilder.dir(0f, 0f)
+        val fwdEast = SphereTargetBuilder.dir(90f, 0f)
+        val fwdZenith = SphereTargetBuilder.dir(0f, 90f)
 
-        // Mark 5 cells captured
-        val updated = lattice.mapIndexed { index, cell ->
-            if (index < 5) cell.copy(status = CellStatus.CAPTURED) else cell
+        assertEquals(90f, SphereTargetBuilder.angleErrorDeg(fwdNorth, fwdEast), 0.01f)
+        assertEquals(90f, SphereTargetBuilder.angleErrorDeg(fwdNorth, fwdZenith), 0.01f)
+        assertEquals(0f, SphereTargetBuilder.angleErrorDeg(fwdNorth, fwdNorth), 0.01f)
+    }
+
+    @Test
+    fun test4000PointCoverageCheckReachesHighCoverageFor30IdealShots() {
+        val completed = SphereTargetBuilder.buildTargets().map { target ->
+            target.copy(
+                status = TargetStatus.COMPLETED,
+                rotationMatrix = SphereCoverageChecker.idealRotationMatrix(target.yawDeg, target.pitchDeg)
+            )
         }
 
-        val expectedPct = (5f / total.toFloat()) * 100f
-        assertEquals(expectedPct, guide.calculateCoveragePercentage(updated), 0.01f)
+        // Typical phone portrait FOV 54° x 70°
+        val report = SphereCoverageChecker.evaluateSessionCoverage(
+            targets = completed,
+            cameraFov = CameraFovInfo(hFovDeg = 54f, vFovDeg = 70f),
+            n = 4000,
+            validateFilesOnDisk = false
+        )
+
+        assertTrue("Expected >98% sphere coverage, got ${report.coveragePercent}%", report.coveragePercent > 98f)
+        assertEquals(30, report.validFileCount)
     }
 
     @Test
-    fun testQualityAnalyzerAcceptsOptimalFrame() {
-        val analyzer = FrameQualityAnalyzer()
-        val currentPose = Pose.fromSpherical(45f, 30f)
+    fun testQualityGateDetectsBlurryVsSharpFrames() {
+        val gate = CaptureQualityGate()
+        val w = 120
+        val h = 160
 
-        val result = analyzer.evaluate(
-            targetCloseness = 0.85f,
-            stabilityScore = 0.90f,
-            estimatedSharpness = 0.88f,
-            estimatedExposure = 0.55f,
-            lastCapturedPose = null,
-            currentPose = currentPose
-        )
+        // Blank flat frame -> zero Laplacian variance (blurry / featureless)
+        val flatLum = IntArray(w * h) { 120 }
+        val flatMetrics = gate.analyzeLuminanceMetrics(flatLum, w, h)
+        assertTrue(flatMetrics.laplacianVariance < 5.0)
+        assertTrue(flatMetrics.textureWarning)
 
-        assertTrue(result.canAutoCapture)
-        assertTrue(result.isAcceptable)
-        assertEquals(QualityColorState.GREEN, result.colorState)
-    }
-
-    @Test
-    fun testQualityAnalyzerRejectsRedundantPose() {
-        val analyzer = FrameQualityAnalyzer()
-        val lastPose = Pose.fromSpherical(45f, 30f)
-        val veryClosePose = Pose.fromSpherical(46f, 31f) // only 1 deg apart
-
-        val result = analyzer.evaluate(
-            targetCloseness = 0.85f,
-            stabilityScore = 0.90f,
-            estimatedSharpness = 0.88f,
-            estimatedExposure = 0.55f,
-            lastCapturedPose = lastPose,
-            currentPose = veryClosePose
-        )
-
-        assertFalse(result.canAutoCapture)
-        assertTrue(result.redundancyScore >= 0.80f)
-    }
-
-    @Test
-    fun testFrameSelectorDecisionMaking() {
-        val analyzer = FrameQualityAnalyzer()
-        val selector = FrameSelector(analyzer)
-        val targetCell = CoverageCell(
-            id = "cell_1",
-            layer = Layer.MIDDLE_RING,
-            azimuthDeg = 0f,
-            elevationDeg = 0f,
-            status = CellStatus.PENDING
-        )
-
-        val decision = selector.shouldCapture(
-            targetCell = targetCell,
-            targetCloseness = 0.95f,
-            stability = 0.92f,
-            currentPose = Pose.fromSpherical(0f, 0f),
-            lastCapturedPose = null,
-            sharpness = 0.85f,
-            exposure = 0.55f
-        )
-
-        assertTrue(decision.shouldCapture)
-        assertNotNull(decision.matchedCell)
-    }
-
-    @Test
-    fun testDeviceCapabilityProfileValidation() {
-        val profile = DeviceCapabilityProfile(
-            hasCamera = true,
-            hasAccelerometer = true,
-            hasGyroscope = true,
-            freeStorageMb = 4500L
-        )
-
-        assertTrue(profile.isReadyFor3DScan)
-        assertTrue(profile.hardwareScore >= 80)
-    }
-
-    @Test
-    fun testPhotoSphereGridGeneration() {
-        val dots = com.example.model.PhotoSphereGenerator.generateDefaultGrid()
-        // Must contain all 360 spherical directions: middle, upper, lower, zenith, nadir
-        assertEquals(28, dots.size)
-
-        val zenith = dots.find { it.id == "zenith" }
-        assertNotNull(zenith)
-        assertEquals(80f, zenith!!.pitchDeg, 0.001f)
-
-        val nadir = dots.find { it.id == "nadir" }
-        assertNotNull(nadir)
-        assertEquals(-80f, nadir!!.pitchDeg, 0.001f)
-
-        val middleDots = dots.filter { it.pitchDeg == 0f }
-        assertEquals(10, middleDots.size)
+        // High-contrast textured checkerboard frame -> high Laplacian variance & rich corner texture
+        val sharpLum = IntArray(w * h) { idx ->
+            val x = idx % w
+            val y = idx / w
+            if (((x / 6) + (y / 6)) % 2 == 0) 225 else 45
+        }
+        val sharpMetrics = gate.analyzeLuminanceMetrics(sharpLum, w, h)
+        assertTrue("Expected high Laplacian variance, got ${sharpMetrics.laplacianVariance}", sharpMetrics.laplacianVariance > 100.0)
+        assertFalse(sharpMetrics.exposureWarning)
+        assertFalse(sharpMetrics.textureWarning)
     }
 }

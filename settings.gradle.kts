@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ScanForge 3D"
+rootProject.name = "Scan 3D"
 
 include(":app")
