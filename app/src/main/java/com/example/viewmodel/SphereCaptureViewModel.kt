@@ -493,24 +493,12 @@ class SphereCaptureViewModel(application: Application) : AndroidViewModel(applic
                 return@launch
             }
 
-            // Run Section 18 Quality Gate
+            // Run Section 18 Quality Gate (record metrics & generate thumbnail; never block aligned captures on blur)
             val gate = qualityGate.evaluateAndGenerateThumb(
                 imageFile = tempFile,
                 thumbFile = thumbFile,
                 blurPreset = _settings.value.blurPreset
             )
-
-            if (!gate.passedBlur) {
-                // Reject blurred frame, keep same target active (Section 18 & 23.2 Step 9)
-                tempFile.delete()
-                holdStartMs = 0L
-                _captureUi.value = _captureUi.value.copy(
-                    captureState = CaptureState.ALIGNED,
-                    holdProgress = 0f,
-                    qualityAlertMessage = gate.warningMessage ?: "Image blurry • Hold still"
-                )
-                return@launch
-            }
 
             // Safe atomic promotion to img_XX.jpg
             val checksum = fileStorage.promoteTempImage(tempFile, finalFile)
@@ -526,6 +514,11 @@ class SphereCaptureViewModel(application: Application) : AndroidViewModel(applic
             }
 
             captureOrderCounter++
+            val softQualityNote = if (gate.exposureWarning || gate.textureWarning) {
+                gate.warningMessage
+            } else {
+                null
+            }
             val updatedTarget = target.copy(
                 status = TargetStatus.COMPLETED,
                 imagePath = finalFile.absolutePath,
@@ -536,7 +529,7 @@ class SphereCaptureViewModel(application: Application) : AndroidViewModel(applic
                 blurScore = gate.blurScore,
                 exposureWarning = gate.exposureWarning,
                 textureWarning = gate.textureWarning,
-                qualityNote = gate.warningMessage,
+                qualityNote = softQualityNote,
                 timestamp = System.currentTimeMillis(),
                 captureOrder = captureOrderCounter,
                 imageWidth = gate.imageWidth,
@@ -573,7 +566,7 @@ class SphereCaptureViewModel(application: Application) : AndroidViewModel(applic
                 activeTarget = nextTarget,
                 captureState = CaptureState.SEARCHING,
                 holdProgress = 0f,
-                qualityAlertMessage = gate.warningMessage,
+                qualityAlertMessage = null,
                 sessionCompletedTrigger = if (isSingleRetake || allCompleted) state.sessionId else null
             )
 
